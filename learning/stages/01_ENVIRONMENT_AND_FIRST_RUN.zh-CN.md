@@ -38,7 +38,7 @@ command -v riscv64-linux-gnu-gcc
 command -v gdb-multiarch
 ```
 
-逐项记录。缺少命令时先解决对应依赖；不要将一整段输出误认为所有工具都已可用。实际验证时需要先安装 GDB、Ninja 和宿主开发库，再构建本仓库 QEMU。阶段实验的验证记录另列于总路线入口。
+逐项记录。缺少命令时先解决对应依赖；不要将一整段输出误认为所有工具都已可用。实际验证时需要先安装 GDB、Ninja 和宿主开发库，再构建本仓库 QEMU。阶段实验的状态统一列于[验证记录](../VALIDATION.zh-CN.md)。
 
 Ubuntu/Debian 可以根据本机发行版准备编译器、Ninja、Python、GLib 开发包、pixman 开发包和 libfdt 开发包；具体依赖以 configure 的检查和 [构建环境文档](../../docs/devel/build-environment.rst) 为准。Guest 调试另需支持 RISC-V 的 GDB，Guest 汇编需要 RISC-V 工具链。
 

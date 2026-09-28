@@ -1,6 +1,6 @@
 # 阶段六：综合实验与独立分析
 
-[返回总路线](../QEMU_LEARNING_DESIGN.zh-CN.md) · [上一阶段](05_DEVICES_AND_INTERRUPTS.zh-CN.md) · [后续：SystemC ESL](../QEMU_SYSTEMC_ESL_DESIGN.zh-CN.md)
+[返回总路线](../QEMU_LEARNING_DESIGN.zh-CN.md) · [上一阶段](05_DEVICES_AND_INTERRUPTS.zh-CN.md) · [下一阶段：异常与中断](07_TRAPS_INTERRUPTS_AND_TIMERS.zh-CN.md)
 
 ## 1. 最终目标
 
@@ -66,6 +66,8 @@ sha256sum build-study/study-lab/program.S build-study/study-lab/program.ld build
 - 把串口后端改为文件：解释终端没有字符的原因，并核对文件输出。
 - 加 `-S` 但不连接 GDB：说明为什么没有执行输出，而不是断言 CPU 卡死。
 
+增加一个设备状态挑战：在独立副本中将初始 LCR 从 3 改成 0x83（置 DLAB），其余保持基线，先预测 UART 偏移 0 的含义，再用宿主断点确认写入的是分频器字段还是发送寄存器。设置有界观察时间，保存无预期字符时的调用证据，随后恢复 LCR=3 重跑。该挑战验收“状态改变访问语义”，不只比较字符常量。
+
 不要通过随机非法访存制造问题；基线没有异常处理器，无法提供清晰异常报告。
 
 排查顺序建议：输入文件与参数→Guest PC→目标指令执行→RAM 结果→MMIO 参数→设备状态→后端输出。每次只改一个条件，避免多个变化互相掩盖。
@@ -115,4 +117,4 @@ sha256sum build-study/study-lab/program.S build-study/study-lab/program.ld build
 | CPU 执行和 TCG | 理解时间授权为何需要接入执行机制 |
 | 两侧调试与证据记录 | 定位通信死锁和事件顺序问题 |
 
-后续按 [ESL 设计文档](../QEMU_SYSTEMC_ESL_DESIGN.zh-CN.md) 依次学习 MMIO 桥、DMA、IRQ、双向通信和时间同步。读懂这些设计不代表桥已经实现，应继续为每个能力安排独立实验。
+后续先完成[阶段七](07_TRAPS_INTERRUPTS_AND_TIMERS.zh-CN.md)至[阶段十一](11_SYSTEMC_TLM_FOUNDATIONS.zh-CN.md)，补齐中断、事件调度、DMA 与独立模型；再按[阶段十二](12_COSIM_INTEGRATION.zh-CN.md)进入联合仿真。读懂设计不代表桥已实现。

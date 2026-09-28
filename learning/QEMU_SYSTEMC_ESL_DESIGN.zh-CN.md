@@ -14,6 +14,12 @@
 
 设计应同时满足三类正确性：**事务语义正确、通信能够持续推进、模拟时间符合因果关系。** socket 连通只能证明字节可以传输，不能代替这三类验证。
 
+### 学习前置与进入条件
+
+先完成[阶段七：异常与中断](stages/07_TRAPS_INTERRUPTS_AND_TIMERS.zh-CN.md)、[阶段八：事件与时间](stages/08_EVENT_LOOPS_AND_TIME.zh-CN.md)、[阶段九：DMA](stages/09_DEVICE_DMA_LAB.zh-CN.md)、[阶段十：自动化验证](stages/10_AUTOMATION_AND_OBSERVABILITY.zh-CN.md)和[阶段十一：SystemC 基础](stages/11_SYSTEMC_TLM_FOUNDATIONS.zh-CN.md)。实际开发按[阶段十二](stages/12_COSIM_INTEGRATION.zh-CN.md)分步推进。
+
+配套程序是独立学习实验：EDU 的 qtest 不执行 Guest，SystemC 寄存器例子不包含桥接，二者通过都不能作为联合仿真已实现的证据。当前状态见[验证记录](VALIDATION.zh-CN.md)。
+
 ## 2. 建模范围与精度边界
 
 ### 2.1 可以回答的问题
