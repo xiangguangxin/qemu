@@ -4,6 +4,8 @@
 
 ## 1. 为什么增加这一层
 
+**实验目标：** 通过 qtest 配置 EDU 的 PCI/MMIO 接口，完成 RAM 与设备缓冲区之间的双向 DMA，逐字核对数据，并验证完成中断状态的置位与清除。
+
 建议 5 次学习。先验证 QEMU 内部的寄存器、设备缓冲区、DMA 和通知，再做跨进程联合仿真。本章使用已有 [EDU 教学设备](../../docs/specs/edu.rst)，不修改 QEMU 核心。配套脚本仅用于个人本地实验，状态见[验证记录](../VALIDATION.zh-CN.md)。
 
 EDU 是 PCI 设备，不是后续拟议的 SysBus 代理。这里额外学习最少的 PCI 配置：发现设备、分配 BAR、开启 Memory Space 与 Bus Master。不能把 EDU 的寄存器表套到 SystemC 拷贝设备上。

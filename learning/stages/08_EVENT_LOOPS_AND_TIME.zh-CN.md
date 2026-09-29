@@ -4,6 +4,8 @@
 
 ## 1. 目标与准备
 
+**实验目标：** 跟踪定时器从寄存器配置到到期中断的生命周期，记录各观察点的线程、调用栈与时间单位，并通过普通运行、icount 和暂停对照解释事件推进机制。
+
 建议 4 次学习。沿用阶段七可运行的 timer/IRQ 程序；仅用于个人本地调试。状态见[验证记录](../VALIDATION.zh-CN.md)。目标是回答“谁执行回调、什么时候执行、等待谁”，为后续双向通信建立基础。
 
 先读[多 IOThread](../../docs/devel/multiple-iothreads.rst)、[icount](../../docs/devel/tcg-icount.rst)。不要求此时掌握多线程 TCG、RCU 或完整协程系统。
