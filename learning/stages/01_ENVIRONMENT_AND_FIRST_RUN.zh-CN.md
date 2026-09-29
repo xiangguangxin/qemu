@@ -22,6 +22,25 @@
 | TCG | 把 Guest 指令翻译为 Host 可执行代码的机制 |
 | 裸机程序 | 自己提供入口，不依赖 Linux 系统调用与 C 运行时 |
 
+它们的层次和职责关系如下：
+
+```text
+Host 真实计算机
+└── Host 操作系统
+    └── QEMU 进程
+        ├── Machine：组装一台 Guest 虚拟计算机
+        │   ├── RISC-V 虚拟 CPU
+        │   ├── Guest RAM
+        │   ├── UART 串口
+        │   ├── 中断控制器
+        │   └── 定时器等设备
+        │
+        └── TCG：让 Guest CPU 指令能在 Host CPU 上执行
+              ↑
+              │ 加载并执行
+        裸机程序 program.elf
+```
+
 `riscv64-softmmu` 是构建目标名，生成系统模拟器 `qemu-system-riscv64`。`qemu-riscv64` 则是用户态模拟器，两者的启动方式不同。这里的 `virt` 是虚拟平台，不是某块真实开发板的精确复刻。
 
 读 [代码结构](../../docs/devel/codebase.rst) 的目录介绍，再看 [RISC-V virt](../../docs/system/riscv/virt.rst) 的平台与启动部分。第一次只建立目录地图，不逐行阅读实现。
