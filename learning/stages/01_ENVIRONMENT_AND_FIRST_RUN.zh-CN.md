@@ -41,6 +41,17 @@ Host 真实计算机
         裸机程序 program.elf
 ```
 
+QEMU 通常是运行在 Host 操作系统上的一个普通用户态进程，QEMU 的代码由 Host CPU 执行：
+
+- QEMU 所需内存由 Host 操作系统分配。
+- QEMU 的线程由 Host 操作系统调度。
+- QEMU 访问文件、网络和终端时，需要调用 Host 操作系统提供的接口。
+- Guest RAM 本质上通常是 QEMU 进程申请的一块 Host 内存。
+- Guest 磁盘通常对应 Host 上的镜像文件或块设备。
+- Guest 串口输出最终可以连接到 QEMU 进程的终端。
+
+不过，QEMU 进程内部会为 Guest 营造出一台完整计算机的视图，所以 Guest 程序看到的是虚拟 CPU、内存和设备，而不是直接看到 QEMU 进程。
+
 `riscv64-softmmu` 是构建目标名，生成系统模拟器 `qemu-system-riscv64`。`qemu-riscv64` 则是用户态模拟器，两者的启动方式不同。这里的 `virt` 是虚拟平台，不是某块真实开发板的精确复刻。
 
 读 [代码结构](../../docs/devel/codebase.rst) 的目录介绍，再看 [RISC-V virt](../../docs/system/riscv/virt.rst) 的平台与启动部分。第一次只建立目录地图，不逐行阅读实现。
