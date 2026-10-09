@@ -10,27 +10,54 @@
 
 本阶段跟通两次访问：`sw t0, 0(t3)` 写 RAM，`sb t5, 0(t4)` 写 UART。最小裸机实验不建立页表；分页先做源码分析，再进入[支线十三](13_MMU_AND_LINUX.zh-CN.md)的自包含 Sv39 实验与 Linux 扩展。
 
-## 2. 第一次学习：区分三个地址
+## 2. 第一次学习：地址层次与两种写入去向
 
-| 地址 | 谁使用 | 示例与限制 |
+### 2.1 GVA、GPA、HVA、HPA
+
+| 缩写 | 英文全称 | 含义 |
 | --- | --- | --- |
-| Guest 虚拟地址 GVA | Guest 指令与软件 | 开启地址转换时需查页表 |
-| Guest 物理地址 GPA | 模拟的平台地址空间 | RAM、UART 等按此布局 |
-| Host 虚拟地址 HVA | QEMU 宿主进程 | RAM backing 的实际指针 |
+| GVA | Guest Virtual Address | Guest 指令或软件使用的虚拟地址 |
+| GPA | Guest Physical Address | Guest 物理地址；虚拟机平台把 RAM、UART 等映射在这个地址空间 |
+| HVA | Host Virtual Address | QEMU 进程可访问的宿主虚拟地址；TCG 访问 RAM backing 时会使用相应映射 |
+| HPA | Host Physical Address | 宿主硬件的物理地址；由宿主内核和硬件虚拟化机制管理，通常不是 QEMU 设备回调直接使用的指针 |
 
-裸机默认 M-mode、没有额外设置 MPRV 等机制时，不走普通 S-mode 分页转换；此实验访问可按 Guest 物理地址分析。不要据此推广到 Linux 用户进程或所有特权模式。
-
-`0x80000000` 在本平台表示 RAM 的起点，不能直接作为宿主指针。Guest 物理地址也不等于 Host 物理地址。
+地址处理可以分成两个问题：Guest 的地址如何变成 GPA，以及 GPA 在虚拟机平台上对应 RAM 还是设备。不要把它们混成一次转换。
 
 ```text
-Guest 指令中的地址
-  → 架构相关转换与权限检查（是否分页取决于模式）
-  → Guest 物理地址空间
-  ├─ RAM：访问宿主 backing memory
-  └─ MMIO：调用设备访问逻辑
+Guest 指令发出的地址
+  │
+  ├─ 若当前特权级/配置启用地址转换：GVA --Guest 页表与权限检查--> GPA
+  └─ 若未启用相应转换：按架构规则直接得到/使用 GPA
+                                         │
+                         QEMU 平台 AddressSpace 按 GPA 查映射
+                            ┌────────────┴─────────────┐
+                            │                          │
+                       普通 RAM                    MMIO 设备
+                 访问 RAM backing             调用 MemoryRegionOps
+                 （TCG 下映射到 HVA）         回调并传入区域内偏移
 ```
 
-读 [内存模型](../../docs/devel/memory.rst) 的区域类型和可见性部分，再读 [访存接口](../../docs/devel/loads-stores.rst)。
+本实验的裸机程序在默认 M-mode、未设置 `MPRV` 等改变访存特权级的情况下，不走普通 S-mode 页表转换，因此可把本例中的有效地址按 GPA 分析。不要把这个结论推广到启用分页的 Guest OS 或其他特权级设置。
+
+`0x80000000` 在本 `virt` 平台上是 RAM 起始 GPA，不是 QEMU 进程的 HVA。GPA 和 HPA 也不是同一个概念。可以把 QEMU 的映射看作“Guest 可见的 GPA 如何落到 QEMU 管理的 RAM 或设备”；HPA 则属于宿主机硬件/内核的物理内存管理层。
+
+### 2.2 普通 RAM 写入与 UART MMIO 写入
+
+**普通 RAM 写入：**CPU 向映射为 RAM 的 GPA 写入数据时，QEMU 通过 RAM 区域访问对应的 backing memory。TCG 的软件 TLB 快速路径可以直接把 Guest 地址映射到 QEMU 进程可访问的 RAM（HVA）并完成读写，不一定每次都进入通用地址空间派发函数。例如，向普通 RAM 写入一个字节 `0x42`，之后从同一 Guest 地址读取应得到 `0x42`。
+
+在本练习程序中，实际的 RAM 写入是 `sw t0, 0(t3)`：`result` 位于 GPA `0x80000048`，写入的是 32 位结果 `15`，小端字节序下内存字节为 `0f 00 00 00`。这与上面的单字节示例是同一种 RAM 路径，但访问宽度不同。
+
+**UART MMIO 写入：**CPU 向映射为 UART 寄存器的 GPA 写入时，QEMU 根据地址空间映射识别出这是 MMIO。设备的 `MemoryRegionOps` 写回调收到区域内偏移、写入值和访问宽度，再由 UART 逻辑解释寄存器写入。例如向本练习平台 UART 的发送数据寄存器地址 `0x10000000` 写入 `0x41`（ASCII `A`），回调通常看到区域内偏移 `0`、值 `0x41`、宽度 1 字节，随后串口后端输出字符 `A`。它不会像普通 RAM 那样把 `0x41` 存进一块供 Guest 普通读写的 RAM。
+
+上述地址、偏移、回调名称和参数是本实验配置下的示例；它们会随 QEMU 版本、machine、UART 型号和设备映射而变化。RAM 与 UART 的具体观察步骤见本章第 4、5 节。
+
+### 2.3 TCG 与硬件加速下的宿主映射
+
+在本章使用的 **TCG** 模式中，QEMU 软件模拟 Guest 的地址转换和访问权限；软件 TLB 命中时，RAM 访问通常走快速路径，MMIO 访问则进入设备模拟逻辑。此时不要把 GPA→HVA 称为 EPT/NPT。
+
+使用 **KVM 等硬件加速**时，Guest 页表仍负责 Guest 虚拟地址到 Guest 物理地址的转换（启用分页时）；在支持二阶段转换的主机架构上，硬件可再用 Intel EPT 或 AMD NPT 将 GPA 映射到 HPA。KVM 还会把 Guest RAM 区域与 QEMU 用户态提供的 backing 映射关联起来。RAM 访问可以由硬件直接执行；未映射为 RAM 的 MMIO 访问通常导致 VM exit，再由 KVM/QEMU 进行设备模拟。具体实现依赖主机架构、KVM 和设备配置。
+
+读 [内存模型](../../docs/devel/memory.rst) 的区域类型和可见性部分，再读 [访存接口](../../docs/devel/loads-stores.rst)；TCG 的软件 MMU 说明见 [TCG 内部机制](../../docs/devel/tcg.rst)。KVM 的 Guest 物理内存区域和 userspace backing 关系可参考[内核 KVM API 文档](https://docs.kernel.org/virt/kvm/api.html#kvm-set-user-memory-region)。
 
 ## 3. 第二次学习：MemoryRegion 与 AddressSpace
 
