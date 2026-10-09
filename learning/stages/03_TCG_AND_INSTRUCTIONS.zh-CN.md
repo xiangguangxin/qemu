@@ -36,18 +36,108 @@ rg -n 'trans_add\(|trans_addi\(|trans_bne\(' target/riscv/tcg/insn_trans/trans_r
 
 ## 4. 第 3～4 次学习：阅读翻译前端
 
-按顺序阅读：
+本节从一条真实的 `add t0, t0, t1` 出发，沿着“机器码 → 解码参数 → 翻译函数 → TCG 操作”走一遍。命令从仓库根目录执行。若系统没有 `rg`，以下使用 `grep`。
 
-1. [insn32.decode](../../target/riscv/insn32.decode)：指令位模式和参数提取。
-2. [translate.c](../../target/riscv/tcg/translate.c)：搜索 `riscv_tr_translate_insn`，了解如何调用解码与翻译逻辑。
-3. [trans_rvi.c.inc](../../target/riscv/tcg/insn_trans/trans_rvi.c.inc)：阅读 `trans_add`、`trans_addi`、`trans_bne`，沿它们实际调用的辅助函数继续追踪。
-4. [translator.c](../../accel/tcg/translator.c)：观察架构回调如何被通用翻译流程调用。
+### 4.1 找到解码规则和翻译函数
 
-阅读任务：标出 Guest 源寄存器在哪里被取用、TCG 值如何计算、目的寄存器如何被表示；追踪 x0 不可写的语义由哪层维护。不要只看到一个 `tcg_gen_*` 名称就结束。
+先确认 ELF 里的 `add` 地址和指令，再定位 QEMU 中对应实现：
 
-读 [TCG 概述](../../docs/devel/tcg.rst) 与 [TCG 操作](../../docs/devel/tcg-ops.rst) 中遇到的操作即可。解码生成过程可参考 [decodetree](../../docs/devel/decodetree.rst)，首轮不必完整学习其语法。
+```bash
+riscv64-linux-gnu-objdump -d build-study/study-lab/program.elf
+grep -n -E '^add[[:space:]]|^addi[[:space:]]|^bne[[:space:]]' target/riscv/insn32.decode
+grep -n -E 'trans_add\(|trans_addi\(|trans_bne\(' target/riscv/tcg/insn_trans/trans_rvi.c.inc
+```
 
-在宿主 GDB 中对 `trans_add` 设置断点，以 Guest PC 与解码参数确认是否为目标指令。变量名以当前函数 `info args`、`info locals` 为准。静态函数若因优化无法断下，使用文件行断点或先检查调试构建。
+在反汇编的 `sum_loop` 里找到 `add`。它应当是类似 `add t0,t0,t1` 的指令；RISC-V 中 `t0` 是 `x5`，`t1` 是 `x6`。`insn32.decode` 描述机器码位如何匹配指令、如何提取操作数；生成的解码器再把操作数交给 `trans_add`。解码器是构建生成的，不要手工修改生成文件。
+
+### 4.2 从源码追踪一次翻译
+
+依次查看下面这些位置：
+
+```bash
+grep -n -E 'riscv_tr_translate_insn|decode_opc|decode_insn32' target/riscv/tcg/translate.c
+grep -n -E 'trans_add\(|trans_addi\(|trans_bne\(' target/riscv/tcg/insn_trans/trans_rvi.c.inc
+grep -n -E 'gen_arith\(|gen_arith_imm_fn\(|gen_branch\(|get_gpr\(|dest_gpr\(|gen_set_gpr\(' target/riscv/tcg/translate.c
+grep -n -E 'translate_insn|ops->translate_insn' accel/tcg/translator.c
+```
+
+可以用 `sed -n '起始行,结束行p' 文件名` 查看搜索结果附近的代码。例如：
+
+```bash
+sed -n '715,740p' target/riscv/tcg/insn_trans/trans_rvi.c.inc
+sed -n '963,989p' target/riscv/tcg/translate.c
+sed -n '405,430p' target/riscv/tcg/translate.c
+```
+
+阅读时对照这条路径：
+
+```text
+riscv_tr_translate_insn
+  → decode_opc / 自动生成的 decode_insn32
+  → trans_add(ctx, a)
+  → gen_arith(..., tcg_gen_add_tl, ...)
+  → get_gpr 取 rs1、rs2；dest_gpr 准备目的值
+  → 生成 TCG 加法；gen_set_gpr 写回 rd
+```
+
+对 `add t0,t0,t1`，解码参数应对应 `rd=x5, rs1=x5, rs2=x6`。`trans_add` 本身只是选择通用加法翻译函数和 TCG 加法操作；它运行时是在**生成翻译**，不是完成 Guest 的一次加法执行。`addi` 类似，但第二个输入是立即数。`bne` 调用 `gen_branch`，比较两个寄存器并生成条件分支。
+
+特别看 `dest_gpr` 和 `gen_set_gpr`：`x0` 作为源寄存器读取时提供常数零；写回时若 `rd==0` 则不写入 CPU 状态。这就是 `x0` 恒为零的关键处理。再看 `get_gpr` 如何把 Guest 寄存器映射到 TCG 值。不要只看到 `tcg_gen_add_tl` 就结束；要跟到结果如何写回。
+
+### 4.3 用宿主 GDB 在翻译函数处停下
+
+确认 `build-study` 是带调试信息的构建（第一阶段使用 `--enable-debug`），在一个终端从仓库根目录运行：
+
+```bash
+gdb --args ./build-study/qemu-system-riscv64 \
+  -machine virt -accel tcg,thread=single -smp 1 -m 128M \
+  -bios none -display none -monitor none \
+  -serial file:build-study/study-lab/host-debug-uart.log \
+  -device loader,file=build-study/study-lab/program.elf,cpu-num=0
+```
+
+在宿主 GDB 提示符依次输入：
+
+```gdb
+set pagination off
+break trans_add
+run
+bt
+info args
+info locals
+p/x ctx->base.pc_next
+p a->rd
+p a->rs1
+p a->rs2
+```
+
+断点命中时，调用栈应显示 QEMU 正在翻译 Guest 指令；`pc_next` 应与反汇编中 `sum_loop` 的 `add` 地址相符，操作数寄存器编号应是 `5, 5, 6`。结构字段或变量若显示不可用，以当前构建中的 `info args`、`info locals` 和源码为准。若 `break trans_add` 找不到符号，先检查是否用了本仓库的调试版 QEMU；也可用 `break target/riscv/tcg/insn_trans/trans_rvi.c.inc:行号` 设置源码行断点。
+
+这次命中只证明 QEMU 正在为包含该 Guest 指令的 TB 生成代码。循环动态执行五次，并不意味着 `trans_add` 一定会被调用五次；TB 生成后通常会被重复执行。用 `continue` 可以观察后续翻译断点，按 `Ctrl+C` 中断，输入 `quit` 退出 GDB。
+
+### 4.4 对照 TCG 日志
+
+从仓库根目录另开终端运行下列命令。它会运行 Guest 程序、在终端输出字符，并把翻译日志写入文件：
+
+```bash
+./build-study/qemu-system-riscv64 \
+  -machine virt -accel tcg,thread=single -smp 1 -m 128M \
+  -bios none -display none -monitor none -serial stdio \
+  -device loader,file=build-study/study-lab/program.elf,cpu-num=0 \
+  -d in_asm,op,out_asm -D build-study/study-lab/tcg.log
+```
+
+看到预期字符后按 `Ctrl+C` 停止 QEMU，再根据反汇编里的 `add` 地址搜索日志：
+
+```bash
+grep -n -A20 -B3 '8000000c' build-study/study-lab/tcg.log
+```
+
+如果你的 `add` 地址不是 `0x8000000c`，把命令中的地址换成自己的。日志格式和宿主汇编会随构建版本、优化和宿主架构变化；重点辨认 `in_asm` 中的 Guest 指令、`op` 中与加法及寄存器读写相关的 TCG 操作、`out_asm` 中生成的 Host 指令。三者不保证逐行一一对应。也可用 `less` 打开日志并搜索地址。
+
+完成后记录：Guest PC、解码得到的 `rd/rs1/rs2`、`trans_add` 调用的辅助函数、观察到的 TCG 操作，以及 Guest GDB 中一次 `add` 执行前后的 `t0`。这些证据来自不同阶段：宿主断点和 TCG 日志看翻译，Guest GDB 看执行。
+
+首次学习只需读 [TCG 概述](../../docs/devel/tcg.rst) 和 [TCG 操作](../../docs/devel/tcg-ops.rst) 中遇到的概念。解码生成过程可参考 [decodetree](../../docs/devel/decodetree.rst)，不必完整学习其语法。
 
 ## 5. 第 5 次学习：生成一份短日志
 
